@@ -115,6 +115,12 @@ class InstallCommand(Command):
             action='store_true',
             help='Upgrade all packages to the newest available version')
         self.parser.add_option(
+            '-R', '--upgrade-recursive',
+            dest='upgrade_recursive',
+            action='store_true',
+            help='Upgrade package to the newest available version, recursing '
+                 'into its dependencies')
+        self.parser.add_option(
             '--force-reinstall',
             dest='force_reinstall',
             action='store_true',
@@ -213,7 +219,8 @@ class InstallCommand(Command):
             src_dir=options.src_dir,
             download_dir=options.download_dir,
             download_cache=options.download_cache,
-            upgrade=options.upgrade,
+            upgrade=options.upgrade or options.upgrade_recursive,
+            upgrade_recursive=options.upgrade_recursive,
             as_egg=options.as_egg,
             ignore_installed=options.ignore_installed,
             ignore_dependencies=options.ignore_dependencies,

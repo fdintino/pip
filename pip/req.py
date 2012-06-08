@@ -797,13 +797,14 @@ class Requirements(object):
 class RequirementSet(object):
 
     def __init__(self, build_dir, src_dir, download_dir, download_cache=None,
-                 upgrade=False, ignore_installed=False, as_egg=False,
-                 ignore_dependencies=False, force_reinstall=False):
+                 ignore_installed=False, as_egg=False, force_reinstall=False,
+                 ignore_dependencies=False, upgrade=False, upgrade_recursive=False):
         self.build_dir = build_dir
         self.src_dir = src_dir
         self.download_dir = download_dir
         self.download_cache = download_cache
-        self.upgrade = upgrade
+        self.orig_upgrade = self.upgrade = upgrade or upgrade_recursive
+        self.upgrade_recursive = upgrade_recursive
         self.ignore_installed = ignore_installed
         self.force_reinstall = force_reinstall
         self.requirements = Requirements()
@@ -901,9 +902,13 @@ class RequirementSet(object):
                     else:
                         install_needed = False
                 if req_to_install.satisfied_by:
+                    if self.orig_upgrade and not self.upgrade:
+                        upgrade_cmd = '--upgrade-recursive'
+                    else:
+                        upgrade_cmd = '--upgrade'
                     logger.notify('Requirement already satisfied '
-                                  '(use --upgrade to upgrade): %s'
-                                  % req_to_install)
+                                  '(use %s to upgrade): %s'
+                                  % (upgrade_cmd, req_to_install))
 
             if req_to_install.editable:
                 if req_to_install.source_dir is None:
@@ -957,9 +962,13 @@ class RequirementSet(object):
                         logger.notify('Requirement already up-to-date: %s'
                                       % req_to_install)
                     else:
+                        if self.orig_upgrade and not self.upgrade:
+                            upgrade_cmd = '--upgrade-recursive'
+                        else:
+                            upgrade_cmd = '--upgrade'
                         logger.notify('Requirement already satisfied '
-                                      '(use --upgrade to upgrade): %s'
-                                      % req_to_install)
+                                      '(use %s to upgrade): %s'
+                                      % (upgrade_cmd, req_to_install))
             if req_to_install.editable:
                 logger.notify('Obtaining %s' % req_to_install)
             elif install:
@@ -1055,6 +1064,7 @@ class RequirementSet(object):
                     if (req_to_install.extras):
                         logger.notify("Installing extra requirements: %r" % ','.join(req_to_install.extras))
                     if not self.ignore_dependencies:
+                        self.upgrade = self.upgrade_recursive
                         for req in req_to_install.requirements(req_to_install.extras):
                             try:
                                 name = pkg_resources.Requirement.parse(req).project_name
