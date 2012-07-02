@@ -57,6 +57,10 @@ def test_upgrade_with_newest_already_installed():
 
 
 def test_upgrade_without_unneeded_recursive_upgrades():
+    """
+    When upgrading a single package, that package's own dependencies should not be
+    upgraded unnecessarily if the user doesn't explicitly ask for them to be upgraded.
+    """
     env = reset_env()
     run_pip('install', 'INITools==0.2')
 
@@ -69,6 +73,11 @@ def test_upgrade_without_unneeded_recursive_upgrades():
 
 
 def test_upgrade_with_needed_recursive_upgrades():
+    """
+    When upgrading a single package A, that package's own dependencies should be
+    upgraded if the installed versions no longer satisfy A's requirements, even if
+    the user doesn't explicitly ask for them to be upgraded, 
+    """
     env = reset_env()
     to_install = abspath(join(here, 'packages', 'FSPkgUsesNewishInitools'))
     result = run_pip('install', to_install)
@@ -80,6 +89,11 @@ def test_upgrade_with_needed_recursive_upgrades():
 
 
 def test_upgrade_with_unneeded_recursive_upgrades_explicitly_requested():
+    """
+    When upgrading a single package A with --upgrade-recursive, all of A's
+    dependencies should be upgraded as well, even if the installed versions
+    already satisfy A's requirements.
+    """
     env = reset_env()
     run_pip('install', 'INITools==0.2')
 
