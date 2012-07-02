@@ -91,6 +91,30 @@ def test_upgrade_with_unneeded_recursive_upgrades_explicitly_requested():
     assert env.site_packages/ 'initools'/'__init__.py' in result.files_updated, 'pip install --upgrade failed to upgrade recursive dependency INITools when it was asked to'
 
 
+def test_upgrade_reqs_file_without_unneeded_recursive_upgrades():
+    """
+    When running non-recursive --upgrade against a requirements file, every package
+    explicitly listed in the requirements file should be upgraded; but any recursive
+    dependencies should not be upgraded.
+    """
+    env = reset_env()
+    run_pip('install', 'INITools==0.2')
+    run_pip('install', 'PyLogo==0.1')
+
+    to_install = abspath(join(here, 'packages', 'FSPkgUsesInitools'))
+    result = run_pip('install', to_install)
+
+    write_file('test-req.txt', textwrap.dedent("""\
+        %(FSPkgUsesInitools)s
+        PyLogo
+        """ % {'FSPkgUsesInitools': to_install}))
+
+    result = run_pip('install', '--upgrade', '-r', env.scratch_path/ 'test-req.txt')
+
+    assert env.site_packages/ 'initools'/'__init__.py' not in result.files_updated, 'pip install --upgrade upgraded recursive dependency INITools when it should not have'
+    assert env.site_packages/ 'pylogo'/'__init__.py' in result.files_updated, 'pip install --upgrade failed to upgrade explicit dependency PyLogo when it should have'
+
+
 def test_upgrade_force_reinstall_newest():
     """
     Force reinstallation of a package even if it is already at its newest
@@ -247,3 +271,4 @@ def test_upgrade_vcs_req_with_dist_found():
     run_pip("install", req)
     result = run_pip("install", "-U", req)
     assert not "pypi.python.org" in result.stdout, result.stdout
+
