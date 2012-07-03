@@ -15,8 +15,8 @@ from pip.vcs import vcs
 from pip.log import logger
 from pip.util import display_path, rmtree
 from pip.util import ask, ask_path_exists, backup_dir
-from pip.util import is_installable_dir, is_local, dist_is_local
-from pip.util import renames, normalize_path, egg_link_path
+from pip.util import is_installable_dir, is_local, dist_is_local, dist_in_usersite
+from pip.util import renames, normalize_path, egg_link_path, dist_in_site_packages
 from pip.util import make_path_relative
 from pip.util import call_subprocess
 from pip.backwardcompat import (urlparse, urllib,
@@ -64,6 +64,7 @@ class InstallRequirement(object):
         self.install_succeeded = None
         # UninstallPathSet of uninstalled distribution (for possible rollback)
         self.uninstalled = None
+        self.use_user_site = False
 
     @classmethod
     def from_editable(cls, editable_req, comes_from=None, default_vcs=None):
@@ -250,14 +251,16 @@ class InstallRequirement(object):
     _run_setup_py = """
 __file__ = __SETUP_PY__
 from setuptools.command import egg_info
+import pkg_resources
+import os
 def replacement_run(self):
     self.mkpath(self.egg_info)
     installer = self.distribution.fetch_build_egg
-    for ep in egg_info.iter_entry_points('egg_info.writers'):
+    for ep in pkg_resources.iter_entry_points('egg_info.writers'):
         # require=False is the change we're making:
         writer = ep.load(require=False)
         if writer:
-            writer(self, ep.name, egg_info.os.path.join(self.egg_info,ep.name))
+            writer(self, ep.name, os.path.join(self.egg_info,ep.name))
     self.find_sources()
 egg_info.egg_info.run = replacement_run
 exec(compile(open(__file__).read().replace('\\r\\n', '\\n'), __file__, 'exec'))
@@ -570,7 +573,7 @@ exec(compile(open(__file__).read().replace('\\r\\n', '\\n'), __file__, 'exec'))
         if self.editable:
             self.install_editable(install_options, global_options)
             return
-        
+
         temp_location = tempfile.mkdtemp('-record', 'pip-')
         record_filename = os.path.join(temp_location, 'install-record.txt')
         try:
@@ -686,7 +689,15 @@ exec(compile(open(__file__).read().replace('\\r\\n', '\\n'), __file__, 'exec'))
         except pkg_resources.DistributionNotFound:
             return False
         except pkg_resources.VersionConflict:
-            self.conflicts_with = pkg_resources.get_distribution(self.req.project_name)
+            existing_dist = pkg_resources.get_distribution(self.req.project_name)
+            if self.use_user_site:
+                if dist_in_usersite(existing_dist):
+                    self.conflicts_with = existing_dist
+                elif running_under_virtualenv() and dist_in_site_packages(existing_dist):
+                    raise InstallationError("Will not install to the user site because it will lack sys.path precedence to %s in %s"
+                                            %(existing_dist.project_name, existing_dist.location))
+            else:
+                self.conflicts_with = existing_dist
         return True
 
     @property
@@ -804,7 +815,8 @@ class RequirementSet(object):
 
     def __init__(self, build_dir, src_dir, download_dir, download_cache=None,
                  ignore_installed=False, as_egg=False, force_reinstall=False,
-                 ignore_dependencies=False, upgrade=False, upgrade_recursive=False):
+                 ignore_dependencies=False, use_user_site=False, upgrade=False,
+                 upgrade_recursive=False):
         self.build_dir = build_dir
         self.src_dir = src_dir
         self.download_dir = download_dir
@@ -822,6 +834,7 @@ class RequirementSet(object):
         self.successfully_installed = []
         self.reqs_to_cleanup = []
         self.as_egg = as_egg
+        self.use_user_site = use_user_site
 
     def __str__(self):
         reqs = [req for req in self.requirements.values()
@@ -832,6 +845,7 @@ class RequirementSet(object):
     def add_requirement(self, install_req):
         name = install_req.name
         install_req.as_egg = self.as_egg
+        install_req.use_user_site = self.use_user_site
         if not name:
             self.unnamed_requirements.append(install_req)
         else:
@@ -1473,6 +1487,8 @@ class UninstallPathSet(object):
     def remove(self, auto_confirm=False):
         """Remove paths in ``self.paths`` with confirmation (unless
         ``auto_confirm`` is True)."""
+        if not self.paths:
+            raise InstallationError("Can't uninstall '%s'. No files were found to uninstall." % self.dist.project_name)
         if not self._can_uninstall():
             return
         logger.notify('Uninstalling %s:' % self.dist.project_name)
