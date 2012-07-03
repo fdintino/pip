@@ -36,7 +36,7 @@ PIP_DELETE_MARKER_FILENAME = 'pip-delete-this-directory.txt'
 class InstallRequirement(object):
 
     def __init__(self, req, comes_from, source_dir=None, editable=False,
-                 url=None, as_egg=False, update=True):
+                 url=None, as_egg=False, update=True, is_extra=False):
         self.extras = ()
         if isinstance(req, string_types):
             req = pkg_resources.Requirement.parse(req)
@@ -58,6 +58,8 @@ class InstallRequirement(object):
         self._is_bundle = None
         # True if the editable should be updated:
         self.update = update
+        # True if the requirement is one of another requirement's extras
+        self.is_extra = is_extra
         # Set to True after successful installation
         self.install_succeeded = None
         # UninstallPathSet of uninstalled distribution (for possible rollback)
@@ -207,6 +209,10 @@ class InstallRequirement(object):
     def setup_py(self):
         return os.path.join(self.source_dir, 'setup.py')
 
+    @property
+    def is_subreq(self):
+        return self.req and self.comes_from.__class__ is self.__class__
+
     def run_egg_info(self, force_root_egg_info=False):
         assert self.source_dir
         if self.name:
@@ -350,7 +356,7 @@ exec(compile(open(__file__).read().replace('\\r\\n', '\\n'), __file__, 'exec'))
                 logger.debug('skipping extra %s' % in_extra)
                 # Skip requirement for an extra we aren't requiring
                 continue
-            yield line
+            yield line, bool(in_extra in extras)
 
     @property
     def absolute_versions(self):
@@ -896,13 +902,13 @@ class RequirementSet(object):
             if not self.ignore_installed and not req_to_install.editable:
                 req_to_install.check_if_exists()
                 if req_to_install.satisfied_by:
-                    if self.upgrade:
+                    if self.is_upgradeable(req_to_install):
                         req_to_install.conflicts_with = req_to_install.satisfied_by
                         req_to_install.satisfied_by = None
                     else:
                         install_needed = False
                 if req_to_install.satisfied_by:
-                    if self.orig_upgrade and not self.upgrade:
+                    if self.upgrade and not self.upgrade_recursive:
                         upgrade_cmd = '--upgrade-recursive'
                     else:
                         upgrade_cmd = '--upgrade'
@@ -938,11 +944,11 @@ class RequirementSet(object):
             if not self.ignore_installed and not req_to_install.editable:
                 req_to_install.check_if_exists()
                 if req_to_install.satisfied_by:
-                    if self.upgrade:
+                    if self.is_upgradeable(req_to_install):
                         if not self.force_reinstall and not req_to_install.url:
                             try:
                                 url = finder.find_requirement(
-                                    req_to_install, self.upgrade)
+                                    req_to_install, upgrade=True)
                             except BestVersionAlreadyInstalled:
                                 best_installed = True
                                 install = False
@@ -962,7 +968,7 @@ class RequirementSet(object):
                         logger.notify('Requirement already up-to-date: %s'
                                       % req_to_install)
                     else:
-                        if self.orig_upgrade and not self.upgrade:
+                        if self.upgrade and not self.upgrade_recursive:
                             upgrade_cmd = '--upgrade-recursive'
                         else:
                             upgrade_cmd = '--upgrade'
@@ -1008,7 +1014,8 @@ class RequirementSet(object):
                         if req_to_install.url is None:
                             if not_found:
                                 raise not_found
-                            url = finder.find_requirement(req_to_install, upgrade=self.upgrade)
+                            url = finder.find_requirement(req_to_install,
+                                upgrade=self.is_upgradeable(req_to_install))
                         else:
                             ## FIXME: should req_to_install.url already be a link?
                             url = Link(req_to_install.url)
@@ -1053,7 +1060,7 @@ class RequirementSet(object):
                         # repeat check_if_exists to uninstall-on-upgrade (#14)
                         req_to_install.check_if_exists()
                         if req_to_install.satisfied_by:
-                            if self.upgrade or self.ignore_installed:
+                            if self.ignore_installed or self.is_upgradeable(req_to_install):
                                 req_to_install.conflicts_with = req_to_install.satisfied_by
                                 req_to_install.satisfied_by = None
                             else:
@@ -1063,9 +1070,9 @@ class RequirementSet(object):
                     finder.add_dependency_links(req_to_install.dependency_links)
                     if (req_to_install.extras):
                         logger.notify("Installing extra requirements: %r" % ','.join(req_to_install.extras))
+
                     if not self.ignore_dependencies:
-                        self.upgrade = self.upgrade_recursive
-                        for req in req_to_install.requirements(req_to_install.extras):
+                        for req, is_extra in req_to_install.requirements(req_to_install.extras):
                             try:
                                 name = pkg_resources.Requirement.parse(req).project_name
                             except ValueError:
@@ -1076,7 +1083,7 @@ class RequirementSet(object):
                             if self.has_requirement(name):
                                 ## FIXME: check for conflict
                                 continue
-                            subreq = InstallRequirement(req, req_to_install)
+                            subreq = InstallRequirement(req, req_to_install, is_extra=is_extra)
                             reqs.append(subreq)
                             self.add_requirement(subreq)
                     if req_to_install.name not in self.requirements:
@@ -1092,6 +1099,13 @@ class RequirementSet(object):
                         self.copy_to_build_dir(req_to_install)
             finally:
                 logger.indent -= 2
+
+
+    def is_upgradeable(self, requirement):
+        if requirement.is_subreq and not requirement.is_extra:
+            return self.upgrade_recursive
+        else:
+            return self.upgrade
 
     def cleanup_files(self, bundle=False):
         """Clean up files, remove builds."""
