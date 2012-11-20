@@ -221,19 +221,21 @@ class InstallCommand(Command):
 
         finder = self._build_package_finder(options, index_urls)
 
+        upgrade = options.upgrade or options.upgrade_recursive
+
         requirement_set = RequirementSet(
             build_dir=options.build_dir,
             src_dir=options.src_dir,
             download_dir=options.download_dir,
             download_cache=options.download_cache,
-            upgrade=options.upgrade or options.upgrade_recursive,
+            upgrade=upgrade,
             upgrade_recursive=options.upgrade_recursive,
             as_egg=options.as_egg,
             ignore_installed=options.ignore_installed,
             ignore_dependencies=options.ignore_dependencies,
             force_reinstall=options.force_reinstall,
             use_user_site=options.use_user_site)
-        upgrade = options.upgrade or options.upgrade_recursive
+
         for name in args:
             requirement_set.add_requirement(
                 InstallRequirement.from_line(name, None, upgrade=upgrade))

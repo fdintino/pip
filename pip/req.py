@@ -820,7 +820,7 @@ class RequirementSet(object):
         self.src_dir = src_dir
         self.download_dir = download_dir
         self.download_cache = download_cache
-        self.upgrade = upgrade or upgrade_recursive
+        self.upgrade = upgrade
         self.upgrade_recursive = upgrade_recursive
         self.ignore_installed = ignore_installed
         self.force_reinstall = force_reinstall
