@@ -20,9 +20,18 @@ __all__ = ['rmtree', 'display_path', 'backup_dir',
            'is_svn_page', 'file_contents',
            'split_leading_dir', 'has_leading_dir',
            'make_path_relative', 'normalize_path',
-           'renames', 'get_terminal_size',
+           'renames', 'get_terminal_size', 'get_prog',
            'unzip_file', 'untar_file', 'create_download_cache_folder',
            'cache_download', 'unpack_file', 'call_subprocess']
+
+
+def get_prog():
+    try:
+        if os.path.basename(sys.argv[0]) in ('__main__.py', '-c'):
+            return "%s -m pip" % sys.executable
+    except (AttributeError, TypeError, IndexError):
+        pass
+    return 'pip'
 
 
 def rmtree(dir, ignore_errors=False):
@@ -78,7 +87,7 @@ def find_command(cmd, paths=None, pathext=None):
     # check if there are funny path extensions for executables, e.g. Windows
     if pathext is None:
         pathext = get_pathext()
-    pathext = [ext for ext in pathext.lower().split(os.pathsep)]
+    pathext = [ext for ext in pathext.lower().split(os.pathsep) if len(ext)]
     # don't use extensions if the command ends with one of them
     if os.path.splitext(cmd)[1].lower() in pathext:
         pathext = ['']
@@ -127,15 +136,33 @@ def ask(message, options):
 
 class _Inf(object):
     """I am bigger than everything!"""
-    def __cmp__(self, a):
-        if self is a:
-            return 0
-        return 1
+
+    def __eq__(self, other):
+        if self is other:
+            return True
+        else:
+            return False
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __lt__(self, other):
+        return False
+
+    def __le__(self, other):
+        return False
+
+    def __gt__(self, other):
+        return True
+
+    def __ge__(self, other):
+        return True
 
     def __repr__(self):
         return 'Inf'
 
-Inf = _Inf()
+
+Inf = _Inf() #this object is not currently used as a sortable in our code
 del _Inf
 
 
@@ -344,8 +371,7 @@ def egg_link_path(dist):
     For #1 and #3, there could be odd cases, where there's an egg-link in 2 locations.
     This method will just return the first one found.
     """
-
-    sites=[]
+    sites = []
     if running_under_virtualenv():
         if virtualenv_no_global():
             sites.append(site_packages)
